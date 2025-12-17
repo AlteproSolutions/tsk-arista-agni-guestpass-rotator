@@ -16,7 +16,7 @@ from wordfreq import top_n_list
 
 import winreg
 
-REG_PATH = r"SOFTWARE\AristaGuestPortal"
+REG_PATH = r"Software\AristaAgni"
 REG_VALUE_KEY_ID = "AGNI_KEY_ID"
 REG_VALUE_KEY_VALUE = "AGNI_KEY_VALUE"
 

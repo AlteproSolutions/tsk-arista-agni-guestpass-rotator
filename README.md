@@ -37,7 +37,7 @@ V návodu budu adresář nazývat prostě **`C:\AristaGuestPortal`**.
 Skript dělá:
 
 1. Pomocí **Launchpad keyLogin** endpointu (`/cvcue/keyLogin`) získá z AGNI **session cookie**  
-   – používá `keyID` / `keyValue` uložené v **HKLM\SOFTWARE\AristaGuestPortal**.
+   – používá `keyID` / `keyValue` uložené v **HKLM\Software\AristaAgni**.
 2. Přes `/api/org.info` zjistí `orgID`.
 3. Přes `/api/identity.guest.user.list` načte seznam guest uživatelů a najde toho,  
    jehož `loginName` nebo `email` = `GUEST_LOGIN` z `config.json`.
@@ -97,7 +97,7 @@ Skript dělá:
 Launchpad API klíče jsou uložené v registru:
 
 ```text
-HKLM\SOFTWARE\AristaGuestPortal
+HKLM\Software\AristaAgni
   AGNI_KEY_ID    (REG_SZ)  – keyID, např. KEY-ATN570317-3494
   AGNI_KEY_VALUE (REG_SZ)  – keyValue
 ```
@@ -134,7 +134,7 @@ Na `C:\AristaGuestPortal`:
 Klíč:
 
 ```text
-HKLM\SOFTWARE\AristaGuestPortal
+HKLM\Software\AristaAgni
 ```
 
 Doporučené ACL:
@@ -242,7 +242,7 @@ Skript:
 3. Uloží je do:
 
    ```text
-   HKLM\SOFTWARE\AristaGuestPortal
+   HKLM\Software\AristaAgni
      AGNI_KEY_ID
      AGNI_KEY_VALUE
    ```
@@ -389,7 +389,7 @@ sc delete AristaGuestPortalWeb
 
 V RegEditu:
 
-- smaž klíč `HKLM\SOFTWARE\AristaGuestPortal`.
+- smaž klíč `HKLM\Software\AristaAgni`.
 
 ### 11.3 Smazání aplikace
 
@@ -405,7 +405,7 @@ V RegEditu:
 Zkontroluj:
 
 - `svc_agni_guest` má právo **“Log on as a service”**.
-- účet má **Read** na `HKLM\SOFTWARE\AristaGuestPortal`.
+- účet má **Read** na `HKLM\Software\AristaAgni`.
 - účet má **Modify** na `C:\AristaGuestPortal` (logy, data).
 
 ### 12.2 Služba běží, ale heslo se nemění

@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 
 # Registry cesta pro AGNI credentials
-REG_PATH = r"SOFTWARE\AristaGuestPortal"
+REG_PATH = r"Software\AristaAgni"
 REG_VALUE_KEY_ID = "AGNI_KEY_ID"
 REG_VALUE_KEY_VALUE = "AGNI_KEY_VALUE"
 
@@ -105,7 +105,7 @@ def configure_registry_credentials():
         print("ERROR: AGNI_KEY_ID i AGNI_KEY_VALUE musí být vyplněné.")
         sys.exit(1)
 
-    # create / open HKLM\SOFTWARE\AristaGuestPortal
+    # create / open HKLM\Software\AristaAgni
     try:
         key = winreg.CreateKeyEx(
             winreg.HKEY_LOCAL_MACHINE,

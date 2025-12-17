@@ -1,7 +1,7 @@
 {
   "ARISTA_AGNI_URL": "https://ag.agni.arista.io",
   "ARISTA_AGNI_KEY_ID": "KEY-XXXX",
-  "ARISTA_AGNI_KEY_VALUE": "KEY_ID",
+  "ARISTA_AGNI_KEY_VALUE": "KEY_VALUE",
 
   "GUEST_LOGIN": "test-guest@altepro.cz",
   "SSID_PROFILE_NAME": "TSK-Guest",
