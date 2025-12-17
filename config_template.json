@@ -4,7 +4,7 @@
   "ARISTA_AGNI_KEY_VALUE": "KEY_VALUE",
 
   "GUEST_LOGIN": "test-guest@altepro.cz",
-  "SSID_PROFILE_NAME": "TSK-Guest",
+  "SSID_PROFILE_NAME": "Guest",
 
   "BACKEND_PORT": 8081,
   "ROTATION_HOUR": 2,
