@@ -20,7 +20,6 @@ LOG_FILE = LOGS_DIR / "web.log"
 # Load LOG LEVEL from config
 # ---------------------------------------------------------------------------
 
-
 def _get_log_level_from_config(default: int = logging.INFO) -> int:
     config_path = BASE_DIR / "config.json"
     try:
@@ -50,7 +49,7 @@ logging.basicConfig(
     ],
 )
 
-logger = logging.getLogger("web_server")
+logger = logging.getLogger("psk_web")
 
 # Disable werkzeug spam
 werkzeug_logger = logging.getLogger("werkzeug")
@@ -124,7 +123,7 @@ HTML_TEMPLATE = """
       margin-bottom: 24px;
     }
 
-    .pass-badge {
+    .psk-badge {
       display: inline-block;
       padding: 14px 28px;
       border-radius: 999px;
@@ -154,12 +153,6 @@ HTML_TEMPLATE = """
       font-size: 16px;
     }
 
-    hr {
-      border: none;
-      border-top: 1px solid #e5e7eb;
-      margin: 32px 0;
-    }
-
     @media (max-width: 768px) {
       .card {
         padding: 32px 24px;
@@ -177,23 +170,17 @@ HTML_TEMPLATE = """
 <div class="card">
   {% if error %}
     <h1>WiFi Access</h1>
-    <p class="subtitle">Scan the QR code to join the WiFi</p>
+    <p class="subtitle">Scan the QR code or type the password</p>
     <p class="error">{{ error }}</p>
   {% else %}
     <h1>WiFi Access</h1>
-    <p class="subtitle">Scan the QR code to join the WiFi and log in with guest account</p>
+    <p class="subtitle">Scan the QR code or type the password</p>
 
     <div class="label">SSID</div>
     <div class="value">{{ ssid }}</div>
 
-    {% if guest_login and guest_password %}
-      <hr>
-      <div class="label">Guest portal username</div>
-      <div class="pass-badge">{{ guest_login }}</div>   <!-- ZMĚNA TADY -->
-
-      <div class="label">Guest portal password</div>
-      <div class="pass-badge">{{ guest_password }}</div>
-    {% endif %}
+    <div class="label">Password</div>
+    <div class="psk-badge">{{ psk }}</div>
 
     <div class="qr">
       <img src="/qr/{{ qr_image }}" alt="WiFi QR">
@@ -215,9 +202,8 @@ HTML_TEMPLATE = """
 # Load current state
 # ---------------------------------------------------------------------------
 
-
 def load_state():
-    state_file = DATA_DIR / "current_guest_pass.json"
+    state_file = DATA_DIR / "current_psk.json"
     if not state_file.is_file():
         return None
 
@@ -241,9 +227,8 @@ def index():
         )
 
     ssid = state.get("ssid")
+    psk = state.get("psk")
     qr_image = state.get("qr_image")
-    guest_login = state.get("guest_login")
-    guest_password = state.get("guest_password")
 
     # Convert ISO timestamp
     last_rotated_raw = state.get("last_rotated_utc")
@@ -260,10 +245,9 @@ def index():
         HTML_TEMPLATE,
         error=None,
         ssid=ssid,
+        psk=psk,
         qr_image=qr_image,
         last_rotated=last_rotated,
-        guest_login=guest_login,
-        guest_password=guest_password,
     )
 
 

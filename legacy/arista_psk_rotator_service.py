@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from rotate_psk import BASE_DIR, rotate_once, load_config  # používáme registry inside rotate_once()
+from legacy.rotate_psk import BASE_DIR, rotate_once, load_config  # používáme registry inside rotate_once()
 
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(exist_ok=True)

@@ -39,7 +39,7 @@ werkzeug_logger.setLevel(logging.WARNING)
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-import status_server  # noqa: E402
+import legacy.status_server as status_server  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

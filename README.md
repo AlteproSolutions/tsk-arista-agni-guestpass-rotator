@@ -1,14 +1,16 @@
-# Arista WiFi PSK Rotator + Web UI
+# Arista AGNI Guest Portal – Password Rotator + Web UI
 
-Rotátor Wi‑Fi PSK pro **Arista CloudVision Wireless Manager** + jednoduché **web UI** s QR kódem a aktuálním heslem.
+Nástroj pro **rotaci hesla jednoho Guest účtu v Arista CloudVision AGNI**  
+a jednoduché **web UI** s QR kódem + přihlašovacími údaji.
 
 Repozitář obsahuje:
 
-- `rotate_psk.py` – logika rotace PSK přes Arista WM API + generování QR a `data/current_psk.json`
-- `status_server.py` – Flask web server pro zobrazení SSID / hesla / QR
-- `arista_psk_rotator_service.py` – Windows služba pro plánovanou rotaci PSK
-- `arista_psk_web_service.py` – Windows služba pro web UI
-- `deploy.py` – instalační skript (vytvoří config, uloží API klíče, zaregistruje služby)
+- `rotate_guest_user_pass.py` – logika rotace hesla přes AGNI API + generování QR a `data/current_guest_pass.json`
+- `status_server.py` – Flask web server pro zobrazení SSID / guest username / password / QR
+- `rotate_guest_user_pass_service.py` – Windows služba pro plánovanou rotaci guest hesla
+- `web_server_service.py` – Windows služba pro web UI
+- `deploy.py` – instalační skript (vytvoří config, uloží AGNI API klíče do registrů, zaregistruje služby, spustí počáteční rotaci)
+- `config_template.json` – šablona konfigurace (volitelně)
 - `requirements.txt` – Python závislosti
 
 > ❗ Všechno níže počítá s **Windows Server 2022/2025** a **Pythonem 3.12** nainstalovaným přes *Python Installation Manager* (`py`).
@@ -22,35 +24,85 @@ Na cílovém serveru:
 1. Otevři repozitář v prohlížeči (GitHub).
 2. Klikni na **Code → Download ZIP**.
 3. ZIP rozbal třeba do  
-   `C:\AristaPskRotator` nebo `C:\Users\<user>\Downloads\ARISTA_PSK`.
+   `C:\AristaGuestPortal` nebo `C:\Users\<user>\Downloads\AGNI_GUEST`.
 
-Dál v návodu budu adresář nazývat prostě **`C:\AristaPskRotator`**.
+V návodu budu adresář nazývat prostě **`C:\AristaGuestPortal`**.
 
 ---
 
 ## 2. Přehled architektury
 
-- **rotate_psk.py**
-  - přihlásí se do Arista WM REST API pomocí API key
-  - najde konfigurační profil pro dané SSID
-  - vygeneruje nové heslo ve formátu `Slovo-Slovo-Slovo7`
-  - pošle změnu na WM
-  - uloží stav do `data/current_psk.json`
-  - vygeneruje QR PNG `data/wifi_qr_<SSID>.png`
+### 2.1 Rotace guest hesla (`rotate_guest_user_pass.py`)
 
-- **status_server.py**
-  - čte `data/current_psk.json`
-  - na HTTP portu (z `config.json`, default 8081) renderuje Wi‑Fi kartu s heslem a QR
+Skript dělá:
 
-- **Windows služby**
-  - `AristaPskRotate` – 1× denně (nebo v test režimu á 2 minuty) zavolá `rotate_once()` z `rotate_psk.py`
-  - `AristaPskWeb` – spustí Flask server ze `status_server.py`
+1. Pomocí **Launchpad keyLogin** endpointu (`/cvcue/keyLogin`) získá z AGNI **session cookie**  
+   – používá `keyID` / `keyValue` uložené v **HKLM\SOFTWARE\AristaGuestPortal**.
+2. Přes `/api/org.info` zjistí `orgID`.
+3. Přes `/api/identity.guest.user.list` načte seznam guest uživatelů a najde toho,  
+   jehož `loginName` nebo `email` = `GUEST_LOGIN` z `config.json`.
+4. Vygeneruje nové heslo ve formátu:
 
-- **API credentials**
-  - bezpečně uloženy v registrech:
-    - `HKLM\SOFTWARE\AristaPskRotator`
-      - `WM_KEY_ID` – API key ID
-      - `WM_KEY_VALUE` – API key value
+   ```text
+   Slovo-Slovo7    (např. Grow-Customer0)
+   ```
+
+   - 2 anglická slova (top frekventovaná, `wordfreq`), první písmeno velké  
+   - pomlčka mezi slovy  
+   - na konci jedna číslice
+
+5. Přes `/api/identity.guest.user.update` nastaví nové heslo (ostatní atributy kopíruje z list response).
+6. Uloží stav do `data/current_guest_pass.json`:
+
+   ```json
+   {
+     "ssid": "TSK-Guest",
+     "guest_login": "test-guest@altepro.cz",
+     "guest_password": "Grow-Customer0",
+     "last_rotated_utc": "2025-12-17T12:11:40.000000+00:00",
+     "qr_image": "wifi_qr_TSK-Guest.png"
+   }
+   ```
+
+7. Vytvoří QR PNG `data/wifi_qr_<SSID>.png` s Wi-Fi payloadem pro **open SSID**:
+
+   ```text
+   WIFI:T:nopass;S:<SSID>;H:false;;
+   ```
+
+### 2.2 Web UI (`status_server.py`)
+
+- Čte `data/current_guest_pass.json`.
+- Na HTTP portu (z `config.json`, default **8081**) renderuje kartu:
+
+  - SSID (open, bez hesla)
+  - **Guest portal username** (ve výrazném badge)
+  - **Guest portal password** (ve výrazném badge)
+  - QR kód pro připojení k Wi-Fi SSID
+  - „Last rotated: … UTC“
+
+- Má interní endpoint `POST /_internal_shutdown`, který používá Windows služba k čistému ukončení Flasku.
+
+### 2.3 Windows služby
+
+- `AristaGuestPassRotate`  
+  – periodicky volá `rotate_once()` z `rotate_guest_user_pass.py` (podle plánu v `config.json`).
+
+- `AristaGuestPortalWeb`  
+  – spouští Flask server ze `status_server.py` v samostatném vlákně
+  – při stopu zavolá `/_internal_shutdown` a počká na ukončení.
+
+### 2.4 AGNI API credentials
+
+Launchpad API klíče jsou uložené v registru:
+
+```text
+HKLM\SOFTWARE\AristaGuestPortal
+  AGNI_KEY_ID    (REG_SZ)  – keyID, např. KEY-ATN570317-3494
+  AGNI_KEY_VALUE (REG_SZ)  – keyValue
+```
+
+Skript `rotate_guest_user_pass.py` je čte přes `winreg` – v `config.json` se **neukládají**.
 
 ---
 
@@ -58,57 +110,51 @@ Dál v návodu budu adresář nazývat prostě **`C:\AristaPskRotator`**.
 
 ### 3.1 Service account
 
-Silně doporučeno **dedikované službové konto**, např.:
+Doporučeno vytvořit dedikovaný účet, např.:
 
 ```bat
-net user svc_psk_Rotator SuperSilneHeslo123! /add
+net user svc_agni_guest SuperSilneHeslo123! /add
 ```
 
-Dále:
+V **Local Security Policy** (`secpol.msc`) nastav:
 
-1. Otevři **Local Security Policy**  
-   `secpol.msc` → **Local Policies → User Rights Assignment**
-2. V položce **Log on as a service** přidej účet `.\svc_psk_Rotator` (nebo doménový).
-
-> Účet nemusí umět interaktivní logon, stačí “log on as a service”.
+- **Local Policies → User Rights Assignment → Log on as a service**  
+  → přidej `.\svc_agni_guest` (případně doménový účet).
 
 ### 3.2 Práva na složku aplikace
 
-Na `C:\AristaPskRotator`:
+Na `C:\AristaGuestPortal`:
 
 - `Administrators` – Full control
-- `svc_psk_Rotator` – Modify (čtení + zápis – logy, data)
-- Odeber (pokud možno) `Users` / `Everyone`.
+- `svc_agni_guest` – Modify (čtení + zápis – logy, data)
+- pokud možno odeber `Users` / `Everyone`.
 
 ### 3.3 Práva na registry
 
-Klíč vytváří deploy skript:
+Klíč:
 
 ```text
-HKLM\SOFTWARE\AristaPskRotator
-  WM_KEY_ID    (REG_SZ)
-  WM_KEY_VALUE (REG_SZ)
+HKLM\SOFTWARE\AristaGuestPortal
 ```
 
 Doporučené ACL:
 
 - `Administrators` – Full control
-- `svc_psk_Rotator` – Read
+- `svc_agni_guest` – Read
 
-Hodnoty jsou prostý text, proto omez přístup pouze na adminy + službový účet.
+Hodnoty `AGNI_KEY_ID` / `AGNI_KEY_VALUE` jsou **prostý text**, proto omez přístup pouze na adminy + service account.
 
 ---
 
 ## 4. Instalace Pythonu pro service account
 
-### 4.1 Přihlášení jako service account (poprvé)
+### 4.1 První přihlášení jako service account
 
-Poprvé je ideální se přihlásit **přímo jako** `svc_psk_Rotator`:
+Poprvé je vhodné se přihlásit **přímo jako** `svc_agni_guest`:
 
-- buď přes RDP
-- nebo lokálně na serveru (Switch user → Other user).
+- RDP, nebo lokálně přes „Switch user → Other user“.
 
-Důvod: Python i `pip` se nainstalují do profilu tohoto uživatele.
+Pak se Python i `pip` nainstalují do profilu tohoto uživatele.
 
 ### 4.2 Instalace Pythonu 3.12
 
@@ -119,23 +165,20 @@ py install 3.12
 py -0p
 ```
 
-Uvidíš něco jako:
+Měl bys vidět něco jako:
 
 ```text
- -V:3.14[-64] *   C:\Users\svc_psk_Rotator\AppData\Local\Python\pythoncore-3.14-64\python.exe
- -V:3.12[-64]     C:\Users\svc_psk_Rotator\AppData\Local\Python\pythoncore-3.12-64\python.exe
+ -V:3.12[-64]   C:\Users\svc_agni_guest\AppData\Local\Python\pythoncore-3.12-64\python.exe
 ```
 
 ### 4.3 Instalace Python závislostí
 
-Přepni se do adresáře aplikace:
-
 ```bat
-cd C:\AristaPskRotator
+cd C:\AristaGuestPortal
 py -3.12 -m pip install -r requirements.txt
 ```
 
-To nainstaluje např.:
+Nainstaluje se např.:
 
 - `requests`
 - `flask`
@@ -148,124 +191,145 @@ To nainstaluje např.:
 
 ## 5. Konfigurace `config.json`
 
-Po prvním spuštění deploy skriptu se vytvoří `config.json`. Typická šablona:
+Po prvním spuštění `deploy.py` se vytvoří `config.json` (pokud už neexistuje). Typická šablona:
 
 ```json
 {
-  "WM_BASE_URL": "https://awm15001-c4.srv.wifi.arista.com",
-  "WM_LOCATION_NAME": "ALTEPRO_LAB",
-  "WM_NODE_ID": 0,
-  "SSID_PROFILE_NAME": "TSK_TEST",
+  "ARISTA_AGNI_URL": "https://ag02w03.agni.arista.io",
+  "GUEST_LOGIN": "test-guest@altepro.cz",
+  "SSID_PROFILE_NAME": "TSK-Guest",
   "BACKEND_PORT": 8081,
   "ROTATION_HOUR": 2,
   "ROTATION_MINUTE": 0,
-  "ROTATION_EVERY_MINUTES": 0,
-  "LOG_LEVEL": "INFO"
+  "TEST_ROTATION_EVERY_MINUTES": 0,
+  "LOG_LEVEL": "INFO",
+  "VERIFY_SSL": true
 }
 ```
 
-Vysvětlení hlavních položek:
+Vysvětlení:
 
-- `WM_BASE_URL` – URL Arista WM.
-- `WM_LOCATION_NAME` – název lokace; skript si poprvé sám najde `WM_LOCATION_ID` a doplní ho do configu.
-- `WM_NODE_ID` – ID node (AP group / zařízení) – dle Arista WM.
-- `SSID_PROFILE_NAME` – název SSID profilu v WM.
-- `BACKEND_PORT` – port web UI (status server).
-- `ROTATION_HOUR`, `ROTATION_MINUTE` – běžný plán: 1× denně.
-- `ROTATION_EVERY_MINUTES` – **testovací režim** (např. 2 = každé 2 minuty).  
-  Pro produkci nastav `0` nebo položku smaž.
+- `ARISTA_AGNI_URL` – URL AGNI clusteru (bez `/api` na konci).
+- `GUEST_LOGIN` – `loginName` nebo `email` guest účtu, kterému budeme rotovat heslo.
+- `SSID_PROFILE_NAME` – SSID, které se zobrazí na webu a v QR (SSID je **open**, bez hesla).
+- `BACKEND_PORT` – port web UI (Flask server).
+- `ROTATION_HOUR`, `ROTATION_MINUTE` – denní plán rotace (lokální čas serveru).
+- `TEST_ROTATION_EVERY_MINUTES` – **testovací režim** (např. `2` = každé 2 minuty).  
+  Pro produkci nastav `0` nebo položku vynech.
 - `LOG_LEVEL` – `INFO` / `DEBUG` / `WARNING` / `ERROR`.
+- `VERIFY_SSL` – `true` = ověřovat TLS certifikáty AGNI (doporučeno),  
+  `false` = vypne ověřování (jen pro lab, ne do produkce).
 
 ---
 
-## 6. Uložení API klíčů do registru
+## 6. Uložení AGNI API klíčů do registru + deploy
 
-Stále přihlášen jako **`svc_psk_Rotator`**:
+Stále přihlášen jako **`svc_agni_guest`**:
 
 ```bat
-cd C:\AristaPskRotator
+cd C:\AristaGuestPortal
 py -3.12 deploy.py
 ```
 
 Skript:
 
-1. Připraví `config.json`, pokud ještě neexistuje.
+1. Vytvoří `config.json` z `DEFAULT_CONFIG`, pokud ještě neexistuje.
 2. Zeptá se na:
-   - `WM_KEY_ID`
-   - `WM_KEY_VALUE`
+
+   - `AGNI KEY_ID` (např. `KEY-ATN570317-3494`)
+   - `AGNI KEY_VALUE`
+
 3. Uloží je do:
-   - `HKLM\SOFTWARE\AristaPskRotator`
-4. Zkontroluje `pywin32`.
-5. Zaregistruje služby:
-   - `AristaPskRotate`
-   - `AristaPskWeb`
+
+   ```text
+   HKLM\SOFTWARE\AristaGuestPortal
+     AGNI_KEY_ID
+     AGNI_KEY_VALUE
+   ```
+
+   (pokud už existují, nabídne ponechání / přepsání).
+
+4. Zkontroluje, že je k dispozici `pywin32`.
+5. Zaregistruje Windows služby:
+
+   - `AristaGuestPassRotate` (soubor `rotate_guest_user_pass_service.py`)
+   - `AristaGuestPortalWeb` (soubor `web_server_service.py`)
+
 6. Pokusí se je rovnou spustit.
+7. Spustí **počáteční rotaci** (`rotate_once()`), aby vznikl `data/current_guest_pass.json` a QR PNG.
 
 ---
 
 ## 7. Nastavení služeb
 
-V **services.msc** najdeš:
+Po `deploy.py` najdeš v **services.msc**:
 
-- **Arista WiFi PSK Rotation Service** (`AristaPskRotate`)
-- **Arista WiFi PSK Web UI** (`AristaPskWeb`)
+- **Arista Guest Portal Password Rotation Service** (`AristaGuestPassRotate`)
+- **Arista Guest Portal Web UI** (`AristaGuestPortalWeb`)
 
-U obou:
+Zkontroluj u obou:
 
-1. Otevři **Properties → Log On**.
-2. Nastav účet:
-   - `.\svc_psk_Rotator`  
-   - zadej heslo.
-3. Startup type:
-   - nejdříve **Manual** (test)
-   - po ověření **Automatic**.
+1. **Properties → Log On**:
 
-> Pokud deploy běžel přímo pod `svc_psk_Rotator`, měl by už Log On nastavit správně – ale je dobré to zkontrolovat.
+   - účet: `.\svc_agni_guest`
+   - heslo: stejné jako při `net user ...`
+
+2. **Startup type**:
+
+   - při prvním testování klidně **Manual**
+   - po ověření přepni na **Automatic**.
 
 ---
 
 ## 8. Ověření provozu
 
-### 8.1 Rotátor
+### 8.1 Testovací režim rotace
 
-1. Pro test nastav v `config.json`:
+Pro lab/test nastav v `config.json`:
 
 ```json
-"ROTATION_EVERY_MINUTES": 2
+"TEST_ROTATION_EVERY_MINUTES": 2
 ```
 
-2. Restartuj **Arista WiFi PSK Rotation Service**.
-3. Sleduj log:
+Restartuj službu:
 
-```text
-C:\AristaPskRotator\logs\service_rotate.log
-C:\AristaPskRotator\logs\rotate.log
+```bat
+net stop AristaGuestPassRotate
+net start AristaGuestPassRotate
 ```
 
-Měl bys vidět něco jako:
+Sleduj logy:
+
+- `logs/service_rotate.log`
+- `logs/rotate_guest_user_pass.log`
+
+Očekávané zprávy:
 
 ```text
 ... Service loop starting — mode=interval, next_run=...
-... Starting scheduled PSK rotation…
-... Generated new PSK passphrase: Something-Something-Word7
-... PSK rotation SUCCESS: ...
+... Starting scheduled guest password rotation…
+... Generated new guest password for test-guest@altepro.cz: Grow-Customer0
+... Guest user password updated successfully
+... State saved: ssid=TSK-Guest, guest_login=test-guest@altepro.cz, ...
 ```
 
 ### 8.2 Web UI
 
-- Zkontroluj, že běží služba **Arista WiFi PSK Web UI**.
-- V prohlížeči na serveru (nebo z LAN) otevři:
+Zkontroluj, že běží služba **AristaGuestPortalWeb**.
 
-```
+V prohlížeči (na serveru nebo z LAN):
+
+```text
 http://<server-name>:8081/
 ```
 
-Měl by se zobrazit panel:
+Uvidíš kartu:
 
-- SSID
-- Password (Fráze-Slova-1234)
-- QR kód
-- “Last rotated: … UTC”
+- **SSID** (např. `TSK-Guest`)
+- **Guest portal username** (v badge)  
+- **Guest portal password** (v badge, tvar `Word-Word7`)
+- **QR kód** – otevřená Wi-Fi
+- `Last rotated: YYYY-MM-DD HH:MM:SS UTC`
 
 ---
 
@@ -273,28 +337,32 @@ Měl by se zobrazit panel:
 
 Až přestaneš testovat:
 
-1. V `config.json` nastav:
+1. V `config.json`:
 
-```json
-"ROTATION_EVERY_MINUTES": 0,
-"ROTATION_HOUR": 2,
-"ROTATION_MINUTE": 0
-```
+   ```json
+   "TEST_ROTATION_EVERY_MINUTES": 0,
+   "ROTATION_HOUR": 2,
+   "ROTATION_MINUTE": 0
+   ```
 
-2. Restartuj **Arista WiFi PSK Rotation Service**.
-3. Ověř v `service_rotate.log`, že režim je `daily` a plán je správný.
+2. Restartuj **AristaGuestPassRotate**:
+
+   ```bat
+   net stop AristaGuestPassRotate
+   net start AristaGuestPassRotate
+   ```
+
+3. V `logs/service_rotate.log` ověř, že běží režim `daily` a plán odpovídá.
 
 ---
 
 ## 10. Firewall
 
-Nezapomeň přidat výjimku pro port web UI:
+Povol příchozí HTTP port pro web UI (dle `BACKEND_PORT`):
 
 ```bat
-netsh advfirewall firewall add rule name="Arista PSK Web UI" dir=in action=allow protocol=TCP localport=8081
+netsh advfirewall firewall add rule name="Arista Guest Portal Web UI" dir=in action=allow protocol=TCP localport=8081
 ```
-
-Nebo použij jiný port / interní firewall dle firemní politiky.
 
 ---
 
@@ -305,22 +373,28 @@ Nebo použij jiný port / interní firewall dle firemní politiky.
 V adresáři aplikace:
 
 ```bat
-cd C:\AristaPskRotator
-py -3.12 arista_psk_rotator_service.py remove
-py -3.12 arista_psk_web_service.py remove
+cd C:\AristaGuestPortal
+py -3.12 rotate_guest_user_pass_service.py remove
+py -3.12 web_server_service.py remove
 ```
 
-Nebo přes `sc delete AristaPskRotate` / `sc delete AristaPskWeb`.
+Nebo:
+
+```bat
+sc delete AristaGuestPassRotate
+sc delete AristaGuestPortalWeb
+```
 
 ### 11.2 Smazání registru
 
 V RegEditu:
 
-- smaž klíč `HKLM\SOFTWARE\AristaPskRotator`
+- smaž klíč `HKLM\SOFTWARE\AristaGuestPortal`.
 
 ### 11.3 Smazání aplikace
 
-- smaž složku `C:\AristaPskRotator` (případně archivuj logy).
+- smaž složku `C:\AristaGuestPortal`  
+  (případně předtím archivuj logy v `logs\`).
 
 ---
 
@@ -330,22 +404,34 @@ V RegEditu:
 
 Zkontroluj:
 
-- **Log On** účet má právo *“Log on as a service”*.
-- Účet má **Read** na `HKLM\SOFTWARE\AristaPskRotator`.
-- Účet má **Modify** na složku `C:\AristaPskRotator` (logy, data).
+- `svc_agni_guest` má právo **“Log on as a service”**.
+- účet má **Read** na `HKLM\SOFTWARE\AristaGuestPortal`.
+- účet má **Modify** na `C:\AristaGuestPortal` (logy, data).
 
-### 12.2 Služba běží, ale PSK se nemění
+### 12.2 Služba běží, ale heslo se nemění
 
-- Podívej se do `logs/rotate.log` – typické chyby:
-  - špatné `WM_KEY_ID` / `WM_KEY_VALUE`
-  - špatné `WM_BASE_URL`
-  - špatný `SSID_PROFILE_NAME` / `WM_LOCATION_NAME`
+- Podívej se do `logs/rotate_guest_user_pass.log` – typické chyby:
 
-### 12.3 Web UI neukazuje heslo, jen chybu
+  - špatné `AGNI_KEY_ID` / `AGNI_KEY_VALUE`
+  - špatné `ARISTA_AGNI_URL`
+  - špatný `GUEST_LOGIN` (uživatel se nenajde v prvních 50 guest users)
 
-- Zkontroluj, že už proběhla aspoň 1 úspěšná rotace  
-  → musí existovat `data/current_psk.json` a `data/wifi_qr_*.png`.
+### 12.3 Web UI ukazuje “WiFi status is not available yet”
+
+- Zkontroluj, že proběhla aspoň jedna úspěšná rotace:
+  - musí existovat `data/current_guest_pass.json`
+  - musí existovat `data/wifi_qr_<SSID>.png`.
+
+- Pokud ne, ručně spusť:
+
+  ```bat
+  py -3.12 rotate_guest_user_pass.py
+  ```
+
+  a sleduj `logs/rotate_guest_user_pass.log`.
 
 ---
 
-Pokud budeš chtít, můžeme do README ještě přidat příklady pro více SSID / více lokací nebo tipy, jak to sledovat přes externí monitoring.
+Pokud je potřeba řešit více guest účtů nebo více SSID / portálů,  
+řeší se to typicky víc instancemi nástroje nebo rozšířením skriptu –
+to už je ale na separátní design.
